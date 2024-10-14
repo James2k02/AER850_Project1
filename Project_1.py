@@ -6,7 +6,9 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import StratifiedShuffleSplit, GridSearchCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, f1_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
 
 
 '''Identifying Objectives and Variables'''
@@ -97,7 +99,7 @@ sns.heatmap(np.abs(corr_matrix))
 
 # USING LOGISTIC REGRESSION #
 
-my_model1 = LogisticRegression(multi_class='ovr')
+my_model1 = LogisticRegression(multi_class='ovr') # ovr is one vs. rest which kind of turns it into a binary problem
 my_model1.fit(X_train, y_train)
 y_pred_train1 = my_model1.predict(X_test)
 
@@ -131,14 +133,16 @@ param_grid = {
 # contribution to the overall score is proportional to its size in the dataset
 scoring = {
     'accuracy': 'accuracy',
-    'f1_weighted': 'f1_weighted'
+    'f1_weighted': 'f1_weighted',
+    'precision_weighted' : 'precision_weighted',
+    'recall_weighted' : 'recall_weighted'
 }
     
-# grid search implementation where we refit based on f1_weighted to get a good balance between precision and recall
+# grid search implementation where we refit based on f1_weighted (has balanced performance) to get a good balance between precision and recall
 grid_search_model1 = GridSearchCV(estimator = my_model1, param_grid = param_grid, cv = 5, scoring = scoring, refit = 'f1_weighted', n_jobs = 1)
 grid_search_model1.fit(X_train, y_train)
 best_params = grid_search_model1.best_params_
-print("Best Hyperparameters (based on f1_weighted):", best_params)
+print("Best Hyperparameters for Model 1 (based on f1_weighted):", best_params)
 
 best_model = grid_search_model1.best_estimator_
 
@@ -154,8 +158,9 @@ print("Test Set Accuracy", test_accuracy)
 # checking classification report to see how it predicted each individual class
 print(classification_report(y_test, y_pred1))
 
-# What I noticed is that the overall accuracy is very good at 94%
-# Some steps predicted better than others 
+# What I noticed is that the overall accuracy is very good at 94% but this can be misleading due to the fact that step 3 is very
+# poorly predicted; the use of precision, recall, and f1 will give a better understanding of the metrics
+# Some steps predicted better than others, for instance, class 10 and 11 have much lower scores than the other classes
 # Step 3 completely failed to predict
 
 # Now, I will try some other models to see if this would get fixed since logistic regression is the most basic method of classification
@@ -163,9 +168,94 @@ print(classification_report(y_test, y_pred1))
   
 # USING RANDOM FORESTS #
 
+my_model2 = RandomForestClassifier(random_state=69)
+my_model2.fit(X_train, y_train)
+y_pred_train2 = my_model2.predict(X_test)
+
+for i in range(5):
+    print("Predictions:", y_pred_train2[i], "Actual values:", y_train[i])
+    
+# GridSearchCV for Model 2
+
+param_grid2 = {
+    'n_estimators': [10, 30, 50],
+    'max_depth': [None, 10, 30],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'max_features': ['sqrt', 'log2']
+}    
+
+# n_estimators is the number os trees in the forest
+# 1) increasing this generally improves performance because there would be more variance but at some point it will just be computationally
+#    expensive and take long to solve
+
+# max_depth is the min number of samples required to split an internal node
+# 1) higher values make the tree more conservative which prevents it from splitting too much and overfitting
+# 2) smaller numbers allow the tree to be more complex
+
+# min_samples_split is the minimum number of samples needed to split an internal node
+# 1) higher values = more conservation (reduced overfitting)
+
+# min_samples_leaf is the the minimum number of samples required to be at a leaf node
+# 1) higher values = more conservation (reduced overfitting)
+
+# max_features is the number of features to consider when looking for the best split
+# 1) controls how many features each tree is allowed to consider when splitting a node
+# 2) reducing the number of features can help reduce overfitting
+
+# grid search implementation
+grid_search_model2 = GridSearchCV(estimator = my_model2, param_grid = param_grid2, cv = 5, scoring = scoring, refit = 'f1_weighted', n_jobs = 1)
+grid_search_model2.fit(X_train, y_train)
+best_params2 = grid_search_model2.best_params_
+
+print("Best Hyperparameters for Model 2 (based on f1_weighted):", best_params2)
+
+best_model2 = grid_search_model2.best_estimator_
+
+print(classification_report(y_test, best_model2.predict(X_test)))
+
+
 # USING SVM #
 
-# USING RANDOMSEARCHCV #
+my_model3 = SVC(random_state = 69)
+my_model3.fit(X_train, y_train)
+y_pred_train3 = my_model3.predict(X_test)
+
+for i in range(5):
+    print("Predictions:", y_pred_train3[i], "Actual values:", y_train[i])
+    
+# GridSearchCV for Model 3
+
+param_grid3 = {
+    'C': [0.1, 1, 10, 100],          
+    'kernel': ['linear', 'rbf', 'poly'], 
+    'gamma': ['scale', 'auto']         
+}
+
+# C is the regulatization parameter (same from logistic regression)
+
+# Kernel determines how data is transformed into a higher-dimensional space
+# 1) the right kernel choice can greatly affect performance
+
+# Gamma affects the shape of the decision boundary and is particularly relevant when using non-linear kernals like rbf
+# 1) defines how far the influence of a single transing example reachs (low values mean far-reaching influence and high values mean
+# close influence)
+
+# grid search implementation
+grid_search_model3 = GridSearchCV(estimator = my_model3, param_grid = param_grid3, cv = 5, scoring = scoring, refit = 'f1_weighted', n_jobs = 1)
+grid_search_model3.fit(X_train, y_train)
+best_params3 = grid_search_model3.best_params_
+
+print("Best Hyperparameters for Model 3 (based on f1_weighted):", best_params3)
+
+best_model3 = grid_search_model3.best_estimator_
+
+print(classification_report(y_test, best_model3.predict(X_test)))
+
+
+# USING RANDOMIZEDSEARCHCV #
+
+
 
 
 
