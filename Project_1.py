@@ -6,9 +6,11 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import StratifiedShuffleSplit, GridSearchCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, f1_score
+from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.neighbors import KNeighborsClassifier
 
 
 '''Identifying Objectives and Variables'''
@@ -77,11 +79,11 @@ y_test = strat_df_test["Step"]
 my_scaler = StandardScaler()
 my_scaler.fit(X_train.iloc[:,0:-1])
 scaled_data_train = my_scaler.transform(X_train.iloc[:,0:-1])
-scaled_data_train_df = pd.DataFrame(scaled_data_train, columns=X_train.columns[0:-1])
+scaled_data_train_df = pd.DataFrame(scaled_data_train, columns = X_train.columns[0:-1])
 X_train = scaled_data_train_df.join(X_train.iloc[:,-1:])
 
 scaled_data_test = my_scaler.transform(X_test.iloc[:,0:-1])
-scaled_data_test_df = pd.DataFrame(scaled_data_test, columns=X_test.columns[0:-1])
+scaled_data_test_df = pd.DataFrame(scaled_data_test, columns = X_test.columns[0:-1])
 X_test = scaled_data_test_df.join(X_test.iloc[:,-1:])
 
 # CORRELATION MATRIX #
@@ -99,12 +101,16 @@ sns.heatmap(np.abs(corr_matrix))
 
 # USING LOGISTIC REGRESSION #
 
-my_model1 = LogisticRegression(multi_class='ovr') # ovr is one vs. rest which kind of turns it into a binary problem
+# ovr is one vs. rest which kind of turns it into a binary problem
+my_model1 = LogisticRegression(C = 0.01, class_weight = 'balanced', multi_class='ovr', random_state = 69) 
 my_model1.fit(X_train, y_train)
-y_pred_train1 = my_model1.predict(X_test)
+y_pred_train1 = my_model1.predict(X_train)
+    
+print("Classification Report for Train 1 \n", classification_report(y_train, y_pred_train1, zero_division = 0))
 
-for i in range(5):
-    print("Predictions:", y_pred_train1[i], "Actual values:", y_train[i])
+y_pred_test1 = my_model1.predict(X_test)
+
+print("Classification Report for Test 1 \n", classification_report(y_test, y_pred_test1, zero_division = 0))
     
 # GridSearchCV for Model 1 
 
@@ -120,7 +126,7 @@ for i in range(5):
 # 3) A small C value (strong regularization) forces the model to shrink the coefficients and make the model simpler and reduces 
 #    overfitting but potenially underiftting if C is too small
 
-# max_iter is the maximum amount (limit) of iterations allowed for the optimization to converge (to find the optimum solution)
+# max_iter is the maximum amount (limit) of iterations allowed for the optimization to converge (to find the optimal solution)
 # 1) A higher value allows the model to run longer and potentially find a better solution but will have high computational costs
 # 2) A lower value may lead to faster training but risks stopping the process before convergence
 param_grid = {
@@ -131,61 +137,65 @@ param_grid = {
 # scoring dictionary
 # I use weighted metrics since there's an imbalance in the dataset where steps 7-9 have the most data points so that each class's
 # contribution to the overall score is proportional to its size in the dataset
-scoring = {
-    'accuracy': 'accuracy',
-    'f1_weighted': 'f1_weighted',
-    'precision_weighted' : 'precision_weighted',
-    'recall_weighted' : 'recall_weighted'
-}
+
     
 # grid search implementation where we refit based on f1_weighted (has balanced performance) to get a good balance between precision and recall
-grid_search_model1 = GridSearchCV(estimator = my_model1, param_grid = param_grid, cv = 5, scoring = scoring, refit = 'f1_weighted', n_jobs = 1)
+grid_search_model1 = GridSearchCV(estimator = my_model1, param_grid = param_grid, cv = 5, scoring = 'f1_weighted', n_jobs = 1)
 grid_search_model1.fit(X_train, y_train)
 best_params = grid_search_model1.best_params_
 print("Best Hyperparameters for Model 1 (based on f1_weighted):", best_params)
 
 best_model = grid_search_model1.best_estimator_
-
-# checking training set accuracy
-train_accuracy = accuracy_score(y_train, best_model.predict(X_train))
-print("Training Set Accuracy:", train_accuracy)
-
-# checking test set accuracy
 y_pred1 = best_model.predict(X_test)
-test_accuracy = accuracy_score(y_test, y_pred1)
-print("Test Set Accuracy", test_accuracy)
 
 # checking classification report to see how it predicted each individual class
-print(classification_report(y_test, y_pred1))
+print("Classification Report After GridSearchCV 1 \n", classification_report(y_test, y_pred1, zero_division = 0))
+
+# confusion matrix of model 1
+cm1 = confusion_matrix(y_test, y_pred1)
+disp1 = ConfusionMatrixDisplay(confusion_matrix = cm1)
+disp1.plot(cmap = plt.cm.Blues)
+plt.title("Confusion Matrix for Logistic Regression")
+plt.show()
+
 
 # What I noticed is that the overall accuracy is very good at 94% but this can be misleading due to the fact that step 3 is very
 # poorly predicted; the use of precision, recall, and f1 will give a better understanding of the metrics
-# Some steps predicted better than others, for instance, class 10 and 11 have much lower scores than the other classes
-# Step 3 completely failed to predict
+# Some steps predicted better than others and some aren't predicted at all since it's being overfitted to the dominate classes
 
 # Now, I will try some other models to see if this would get fixed since logistic regression is the most basic method of classification
 
   
 # USING RANDOM FORESTS #
 
-my_model2 = RandomForestClassifier(random_state=69)
+my_model2 = RandomForestClassifier(max_depth = 5, 
+                                   n_estimators = 10,
+                                   min_samples_split = 45, 
+                                   min_samples_leaf = 40, 
+                                   max_features = 'sqrt',
+                                   class_weight = 'balanced', 
+                                   random_state = 69)
 my_model2.fit(X_train, y_train)
-y_pred_train2 = my_model2.predict(X_test)
+y_pred_train2 = my_model2.predict(X_train)
+   
+print("Classification Report for Train 2 \n", classification_report(y_train, y_pred_train2, zero_division = 0))
 
-for i in range(5):
-    print("Predictions:", y_pred_train2[i], "Actual values:", y_train[i])
+y_pred_test2 = my_model2.predict(X_test)
+
+print("Classification Report for Test 2 \n", classification_report(y_test, y_pred_test2, zero_division = 0))
     
 # GridSearchCV for Model 2
 
 param_grid2 = {
-    'n_estimators': [10, 30, 50],
-    'max_depth': [None, 10, 30],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4],
-    'max_features': ['sqrt', 'log2']
+    'n_estimators': [50, 100],
+    'max_depth': [5, 10],
+    'min_samples_split': [30, 40, 50],
+    'min_samples_leaf': [20, 30, 40],
+    'max_features': ['sqrt'],
+    'class_weight' : ['balanced']
 }    
 
-# n_estimators is the number os trees in the forest
+# n_estimators is the number of trees in the forest
 # 1) increasing this generally improves performance because there would be more variance but at some point it will just be computationally
 #    expensive and take long to solve
 
@@ -204,7 +214,7 @@ param_grid2 = {
 # 2) reducing the number of features can help reduce overfitting
 
 # grid search implementation
-grid_search_model2 = GridSearchCV(estimator = my_model2, param_grid = param_grid2, cv = 5, scoring = scoring, refit = 'f1_weighted', n_jobs = 1)
+grid_search_model2 = GridSearchCV(estimator = my_model2, param_grid = param_grid2, cv = 5, scoring = 'f1_weighted', n_jobs = 1)
 grid_search_model2.fit(X_train, y_train)
 best_params2 = grid_search_model2.best_params_
 
@@ -212,24 +222,36 @@ print("Best Hyperparameters for Model 2 (based on f1_weighted):", best_params2)
 
 best_model2 = grid_search_model2.best_estimator_
 
-print(classification_report(y_test, best_model2.predict(X_test)))
+y_pred2 = best_model2.predict(X_test)
+
+print("Classification Report After GridSearchCV 2 \n", classification_report(y_test, y_pred2, zero_division = 0))
+
+cm2 = confusion_matrix(y_test, y_pred2)
+
+disp2 = ConfusionMatrixDisplay(confusion_matrix = cm2)
+disp2.plot(cmap = plt.cm.Blues)
+plt.title("Confusion Matrix for Random Forests")
+plt.show()
 
 
 # USING SVM #
 
-my_model3 = SVC(random_state = 69)
+my_model3 = SVC(class_weight = 'balanced', random_state = 69)
 my_model3.fit(X_train, y_train)
-y_pred_train3 = my_model3.predict(X_test)
+y_pred_train3 = my_model3.predict(X_train)
 
-for i in range(5):
-    print("Predictions:", y_pred_train3[i], "Actual values:", y_train[i])
-    
+print("Classification Report for Train 3 \n", classification_report(y_train, y_pred_train3, zero_division = 0))
+
+y_pred_test3 = my_model3.predict(X_test)
+print("Classification Report for Test 3 \n", classification_report(y_test, y_pred_test3, zero_division = 0))
+
 # GridSearchCV for Model 3
 
 param_grid3 = {
-    'C': [0.1, 1, 10, 100],          
+    'C': [0.1, 1, 5],          
     'kernel': ['linear', 'rbf', 'poly'], 
-    'gamma': ['scale', 'auto']         
+    'gamma': ['scale', 'auto'],  
+    'class_weight' : ['balanced']      
 }
 
 # C is the regulatization parameter (same from logistic regression)
@@ -242,7 +264,7 @@ param_grid3 = {
 # close influence)
 
 # grid search implementation
-grid_search_model3 = GridSearchCV(estimator = my_model3, param_grid = param_grid3, cv = 5, scoring = scoring, refit = 'f1_weighted', n_jobs = 1)
+grid_search_model3 = GridSearchCV(estimator = my_model3, param_grid = param_grid3, cv = 5, scoring = 'f1_weighted', n_jobs = 1)
 grid_search_model3.fit(X_train, y_train)
 best_params3 = grid_search_model3.best_params_
 
@@ -250,19 +272,67 @@ print("Best Hyperparameters for Model 3 (based on f1_weighted):", best_params3)
 
 best_model3 = grid_search_model3.best_estimator_
 
-print(classification_report(y_test, best_model3.predict(X_test)))
+y_pred3 = best_model3.predict(X_test)
 
+print("Classification Report After GridSearchCV 3 \n", classification_report(y_test, y_pred3, zero_division = 0))
 
-# USING RANDOMIZEDSEARCHCV #
+cm3 = confusion_matrix(y_test, y_pred3)
 
+disp3 = ConfusionMatrixDisplay(confusion_matrix = cm3)
+disp3.plot(cmap = plt.cm.Blues)
+plt.title("Confusion Matrix for SVM")
+plt.show()
 
+# USING KNEIGHBORSCLASSIFIER #
 
+my_model4 = KNeighborsClassifier()
+my_model4.fit(X_train, y_train)
+y_pred_train4 = my_model4.predict(X_train)
 
+print("Classification Report for Train 4 \n", classification_report(y_train, y_pred_train4, zero_division = 0))
 
+y_pred_test4 = my_model4.predict(X_test)
+print("Classification Report for Test 4 \n", classification_report(y_test, y_pred_test4, zero_division = 0))
 
+# RandomizedSearchCV for Model 4
 
+param_grid4 = {
+    'n_neighbors': [3, 5, 7, 9, 11],  
+    'weights': ['uniform', 'distance'],  
+    'p': [1, 2]  
+}
 
+# n_neighbors defines the number os nearest neighbors the algorithm will use to make a prediction for each point
+# 1) Smaller values are sensitive to noise and could result in overfitting
+# 2) Larger values makes the decision smoother but could potentially underfit the data
 
+# weights determines how the neighbors contribute to the decision making process
+# 1) uniform means all neighbors have equal weight
+# 2) distance means closer neighbors have more influence than those further away
+
+# p defines which distance metric will be used for the calculation
+# 1) 1 = Manhattan distance; 2 = Euclidean distance
+  
+# randomized search implementation
+
+random_search = RandomizedSearchCV(my_model4, param_grid4, n_iter = 10, cv = 5, scoring = 'f1_weighted', random_state = 69, n_jobs = -1)
+random_search.fit(X_train, y_train)
+
+best_params4 = random_search.best_params_
+print("Best Hyperparameters for Model 4 (based on f1_weighted):", best_params4)
+
+best_model4 = random_search.best_estimator_
+
+y_pred4 = best_model4.predict(X_test)
+
+print("Classification Report After RandomizedSearchCV \n", classification_report(y_test, y_pred4, zero_division = 0))
+
+cm4 = confusion_matrix(y_test, y_pred4)
+
+disp4 = ConfusionMatrixDisplay(confusion_matrix = cm4)
+disp4.plot(cmap = plt.cm.Blues)
+plt.title("Confusion Matrix for KNN")
+plt.show()
 
 
 
