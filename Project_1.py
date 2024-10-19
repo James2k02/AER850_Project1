@@ -7,10 +7,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import StratifiedShuffleSplit, GridSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.svm import SVC
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
+import joblib
 
 
 '''Identifying Objectives and Variables'''
@@ -77,14 +78,14 @@ y_test = strat_df_test["Step"]
 # Even though the values are not extremely far apart, it still might affect the performance of the model so it would
 # be in the best interest of the model to perform scaling methods
 my_scaler = StandardScaler()
-my_scaler.fit(X_train.iloc[:,0:-1])
-scaled_data_train = my_scaler.transform(X_train.iloc[:,0:-1])
-scaled_data_train_df = pd.DataFrame(scaled_data_train, columns = X_train.columns[0:-1])
-X_train = scaled_data_train_df.join(X_train.iloc[:,-1:])
+my_scaler.fit(X_train)
+scaled_data_train = my_scaler.transform(X_train)
+scaled_data_train_df = pd.DataFrame(scaled_data_train, columns = X_train.columns)
+X_train = scaled_data_train_df
 
-scaled_data_test = my_scaler.transform(X_test.iloc[:,0:-1])
-scaled_data_test_df = pd.DataFrame(scaled_data_test, columns = X_test.columns[0:-1])
-X_test = scaled_data_test_df.join(X_test.iloc[:,-1:])
+scaled_data_test = my_scaler.transform(X_test)
+scaled_data_test_df = pd.DataFrame(scaled_data_test, columns = X_test.columns)
+X_test = scaled_data_test_df
 
 # CORRELATION MATRIX #
 
@@ -333,6 +334,77 @@ disp4 = ConfusionMatrixDisplay(confusion_matrix = cm4)
 disp4.plot(cmap = plt.cm.Blues)
 plt.title("Confusion Matrix for KNN")
 plt.show()
+
+'''Stacked Model Performance Analysis'''
+
+# the 2 models that I will be combining are Logistic Regression and Random Forests
+comb_models = [
+    ('logreg', LogisticRegression(C = 0.01, class_weight = 'balanced', random_state = 69)),
+    ('randomforest', RandomForestClassifier(max_depth = 5, n_estimators = 10, class_weight = 'balanced', random_state = 69))
+]
+
+# meta-model will be logistic regression since it's not as complex as the other models and can generalize well without overfitting
+meta_model = LogisticRegression()
+
+# using StackingClassifier to combine 2 of the models
+stacking_clf = StackingClassifier(
+    estimators = comb_models,    
+    final_estimator = meta_model,  
+    cv = 5  
+)
+
+# training the stacking classifier
+stacking_clf.fit(X_train, y_train)
+
+# predicting using combined models
+y_pred_stacked_train = stacking_clf.predict(X_train)
+print("Classification Report for StackingClassifier (Train) \n", classification_report(y_train, y_pred_stacked_train, zero_division = 0))
+
+y_pred_stacked_test = stacking_clf.predict(X_test)
+print("Classification Report for StackingClassifier (Test) \n", classification_report(y_test, y_pred_stacked_test, zero_division = 0))
+
+# confusion matrix for stacking classifier
+cm5 = confusion_matrix(y_test, y_pred_stacked_test)
+
+disp5 = ConfusionMatrixDisplay(confusion_matrix = cm5)
+disp5.plot(cmap = plt.cm.Blues)
+plt.title("Confusion Matrix for StackingClassifier")
+plt.show()
+
+# After combining Logistic Regression and Random Forests, there was noticeable improvement from what was seen when the models were
+# standalone. For each of the 2 models, there were some classes that failed to predict due to the nature of the model but by combining
+# the 2 models together, it leveraged the strengths of both models and combined them together to get an even better model. This 
+# improvement was due to the StackingClassifier's ability to combine the linear nature of Logistic Regression and the non-linear nature
+# of the Random Forests and bring out the strengths of both leading to better handling of the class imbalance
+
+'''Model Evaluation'''
+
+# I will use the combined models as my final model
+joblib.dump(stacking_clf, 'final_model.joblib')
+loaded_model = joblib.load('final_model.joblib')
+
+# new dataset to predict the maintenance steps
+new_dataset = [
+    [9.375, 3.0625, 1.51],
+    [6.995, 5.125, 0.3875],
+    [0, 3.0625, 1.93],
+    [9.4, 3, 1.8],
+    [9.4, 3, 1.3]
+]
+
+# changing coordinates to a dataframe
+new_dataset_df = pd.DataFrame(new_dataset, columns = X_train.columns)
+ 
+# before predicting the new dataset, we need to scale it like we did with the features at the beginning
+new_dataset_scaled = my_scaler.transform(new_dataset_df)
+
+# after scaling it goes back to a numpy array so I need to convert it back
+new_dataset_scaled_df = pd.DataFrame(new_dataset_scaled, columns = X_train.columns)
+
+# predict maintenance steps
+predicted_classes = loaded_model.predict(new_dataset_scaled_df)
+print("Predicted Maintenance Steps:", predicted_classes)
+
 
 
 
